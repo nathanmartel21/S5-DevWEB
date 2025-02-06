@@ -1,0 +1,517 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width">
+    <title>Le Super Doodle JUMP</title>
+    <style>
+        body {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            background-color: lightblue;
+        }
+        #my_canvas {
+            background-color: lightblue;
+            border: 1px solid lightblue;
+        }
+        #jeu_perd {
+            display: none;
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background-color: white;
+            padding: 20px;
+            border: 2px solid black;
+            text-align: center;
+            font-size: 24px;
+        }
+
+    </style>
+</head>
+
+<body>
+    <canvas id="my_canvas" width="450" height="750" style="border: 1px solid lightblue; border-radius: 8px;"></canvas>
+    <div id="jeu_perd">Vous avez perdu(e) !<br><button onclick="redemJeu()">Redémarrer</button></div>
+
+    <!-- Images cachées -->
+    <img id="background_image" src="./images/bck@2x.png" style="display: none;">
+    <img id="doodle_image_g" src="./images/lik-left@2x.png" style="display: none;">
+    <img id="doodle_image_d" src="./images/lik-right@2x.png" style="display: none;">
+    <img id="verte" src="./images/verte.png" style="display: none;">
+    <img id="bleue" src="./images/bleue.png" style="display: none;">
+    <img id="blanche" src="./images/blanche.png" style="display: none;">
+    <img id="ressort_image" src="./images/ressort.png" style="display: none;">
+    <img id="trampoline_image" src="./images/trampo.png" style="display: none;">
+
+
+    <!-- <img id="finish_line_image" src="./images/finish.png" style="display: none;"> -->
+    <img id="jaune" src="./images/jaune.png" style="display: none;">
+
+    <script>
+        class Model {
+            static GRAVITY = 20;
+            static JUMP_FORCE = 700;
+            static SPEED = 200;
+            static POS_MAX_DOODLE = 300; // Hauteur max du doodle
+
+            constructor() {
+                // initialisation
+                this._direction = 0;
+                this._gravitySpeed = 0;
+                this._position = { x: 200, y: 500 }; // Initial doodle position
+                this._plats = this.generePlats(); // Plateformes de départ
+                this._score = 50; // Score initial
+            }
+
+            get position()    {
+                return this._position; 
+            }
+            get plats()   { 
+                return this._plats; 
+            }
+            get direction()   { 
+                return this._direction; 
+            }
+            get score()       { 
+                return this._score; 
+            }
+            set direction(v)  {
+                this._direction = v; 
+            }
+
+            // pour générer les plateformes dans la première frame
+            // essayer de gérer le problème pour que le buffer commence à 0
+            generePlats() {
+                const plats = [];
+
+                // 1) Plateforme initiale sous le doodle 
+                //    => pour qu’il ne tombe pas au tout début
+                plats.push({ type: 'PV', x: 200, y: 600, width: 57, height: 15, direction: 1, siRessort: false, sEnleve: false }); // Sous le doodle
+
+                // 2) Autres plateformes, réparties jusqu’à y=70 
+                //    en remontant par pas de 70
+                for (let y = 500; y >= 70; y -= this.DiffPlatOcc()) {
+                    let platType = this.TypePlatGener(y);
+                    let nouvPlat = this.nouvPlatCree(platType, y);
+                    plats.push(nouvPlat);
+                }
+
+                return plats;
+                
+            }
+
+            DiffPlatOcc() { 
+                // fonction pour le nombre d'occurrence de plateformes en fonction du score (écart vertical en pixels)
+                if (this._score < 2000) 
+                    return 45;  // beaucoup de plateformes
+                if (this._score < 4000) 
+                    return 55;  // beaucoup de plateformes
+                if (this._score < 6000) 
+                    return 65;  // beaucoup de plateformes
+                if (this._score < 8000) 
+                    return 80; // plus espacé
+                if (this._score < 10000) 
+                    return 90; // encore plus espacé
+                if (this._score < 12000) 
+                    return 100; // difficile
+                return 105;  // très peu de plateformes
+            }
+
+            // création d’une plateforme
+            nouvPlatCree(type, y) { 
+                return { 
+                    type: type, x: Math.random()* 390, y: y, width: 57, height: 15, direction: 1, siRessort: (Math.random()<0.03), siTrampoline: Math.random() < 0.02, sEnleve: false // 5% chance for a spring
+                };
+            }
+
+            // type de plateforme générée en fonction du score
+            TypePlatGener(y) {
+                let probPlatV = 0.9;
+                let probPlatB_M = 0.1;
+                let probPlatB_D = 0.0;
+                let probPlatJ = 0.0;
+
+                if (this._score >= 2000) {
+                    probPlatV = 0.9;
+                    probPlatB_M = 0.1;
+                }
+                if (this._score >= 4000) {
+                    probPlatV = 0.75;
+                    probPlatB_M = 0.2;
+                    probPlatB_D = 0.05;
+                }
+                if (this._score >= 6000) {
+                    probPlatV = 0.5;
+                    probPlatB_M = 0.35;
+                    probPlatB_D = 0.15;
+                }
+                if (this._score >= 8000) {
+                    probPlatV = 0.3;
+                    probPlatB_M = 0.5;
+                    probPlatB_D = 0.2;
+                }
+                if (this._score >= 10000) {
+                    probPlatV = 0.1;
+                    probPlatB_M = 0.5;
+                    probPlatB_D = 0.4;
+                }
+                if (this._score >= 12000) {
+                    probPlatV = 0.05;
+                    probPlatB_M = 0.35;
+                    probPlatB_D = 0.5;
+                    probPlatJ = 0.1;
+                }
+                if (this._score >= 14000) {
+                    probPlatV = 0.0;
+                    probPlatB_M = 0.3;
+                    probPlatB_D = 0.5;
+                    probPlatJ = 0.2;
+                }
+                if (this._score >= 16000) {
+                    probPlatV = 0.0;
+                    probPlatB_M = 0.2;
+                    probPlatB_D = 0.4;
+                    probPlatJ = 0.4;
+                }
+                if (this._score >= 18000) {
+                    probPlatV = 0.0;
+                    probPlatB_M = 0.1;
+                    probPlatB_D = 0.3;
+                    probPlatJ = 0.6;
+                }
+                if (this._score >= 20000) {
+                    probPlatV = 0.0;
+                    probPlatB_M = 0.0;
+                    probPlatB_D = 0.2;
+                    probPlatJ = 0.8;
+                }
+
+                // calcul de la probabilité de chaque type de plateforme
+                const rand = Math.random();
+                let type = 'PV';
+
+                if (rand < probPlatB_M) {
+                    type = 'PB_M';
+                } else if (rand < probPlatB_M + probPlatB_D) {
+                    type = 'PB_D';
+                } else if (rand < probPlatB_M + probPlatB_D + probPlatJ) {
+                    type = 'PJ';
+                }
+                
+                return type;
+            }
+
+
+            BindDisplay(callback) { // gardée, mettre à jour la frame (l'affichage) à chaque mouvement. Appelée dans Move du coup
+                this.b_Display = callback; 
+            }
+
+            Move(fps) {
+                if (this._DoodleTombe) return;  // Arrête le déplacement si le jeu est perdue
+
+                this._gravitySpeed += Model.GRAVITY;
+                this._position.y += this._gravitySpeed / fps;
+                this._position.x += this._direction * Model.SPEED / fps;
+
+                this.PlatColli();
+
+                // doodle dépasse pas le POS_MAX_DOODLE dans la frame pour "qu'il monte"
+                if (this._position.y < Model.POS_MAX_DOODLE) {
+                    const DeplacePlat = Model.POS_MAX_DOODLE - this._position.y; // justement la, calcule de la différence
+                    this._position.y = Model.POS_MAX_DOODLE; // doodle à la bonne position
+
+                    // forEach des plateformes, on les décends justement
+                    this._plats.forEach(plat => { 
+                        plat.y += DeplacePlat;
+                    });
+
+                    // score mit à jour, incrémentation
+                    this._score += DeplacePlat;
+
+                    /* génération des plateformes dans le buffer.
+                        - la boucle continue tant que la position y de la plateforme > espacement vertical entre les plateformes
+                        this._plats --> contient toutes les plateformes du jeu
+                        this._plats[this._plats.length - 1] --> dernier elem
+                    */
+
+                    while (this._plats[this._plats.length - 1].y > this.DiffPlatOcc()) {
+                        let PlusHautePlat = this._plats[this._plats.length - 1]; // la plus haute plateforme
+                        let NouvellePosY = PlusHautePlat.y - this.DiffPlatOcc(); // position y de la nouvelle plateforme
+                        let newType = this.TypePlatGener(NouvellePosY); // type
+                        this._plats.push(this.nouvPlatCree(newType, NouvellePosY)); // on l'affiche
+                    }
+                }
+
+                // delete des plateformes sous le canvas pour qu'il puisse tomber dans le vide (si game over)
+                // p = chaque plateforme
+                this._plats = this._plats.filter(p => p.y < 750);
+
+                // mouvement des plateformes "moving"
+                this._plats.forEach(p => this.DepalcePlat(p));
+
+                // pour que les données soient mis à jour du x des plats bleues
+                this.b_Display(this._position, this._direction, this._plats, this._score);
+
+                // jeu finished si doodle sort en bas
+                if (this._position.y > 750) {
+                    this.DoodleTombe();
+                }
+
+                // pour que le doodle ne sorte pas du canvas
+                if (this._position.x > 440) {
+                    this._position.x = -60; // réapparait de l'autre côté
+                } else if (this._position.x < -60) {
+                    this._position.x = 440;
+                }
+            }
+
+            DepalcePlat(plat) {
+                if (plat.type === 'PB_M') {
+                    plat.x += plat.direction * 2; // déplacement horizontal
+                    if (plat.x <= 0 || plat.x >= 390) {
+                        plat.direction *= -1; // sans multiplication lorsque la plat atteint les bords, qu'elle fasse demi tour
+                    }
+                }
+            }
+
+            // gère les collisions avec les plateformes
+            PlatColli() {
+                const SiCollision = this._position.y + 70; // pos du doodle + 70 (taille du doodle)
+                const tolerance = 5; // le fait de savoir a combien de pixels près on est de la plateforme
+                const RognagePlat = 20; // réduire la largeur effective des plateformes
+
+                this._plats.forEach(plat => {
+                    const RognageHauteur = plat.x + RognagePlat;
+                    const RognageLargeur = plat.width - 2 * RognagePlat;
+
+                    if (this._position.x < RognageHauteur + RognageLargeur && (this._position.x + 70) > RognageHauteur && SiCollision > plat.y - tolerance && SiCollision < plat.y + plat.height && this._gravitySpeed > 0) {
+                        // collision avec plateforme normale ou plateforme avec ressort
+                        
+                        if (plat.siTrampoline) { 
+                            const DebSpawnTrampoline = plat.x + 10;
+                            const FinSpawnTrampoline = DebSpawnTrampoline + 37;
+                            if ((this._position.x + 70) > DebSpawnTrampoline && this._position.x < FinSpawnTrampoline) {
+                                this._Jump(1500); // force de saut plus grande que le ressort
+                                
+                            } else {
+                                this._Jump(Model.JUMP_FORCE);
+                            }
+                        } else if (plat.siRessort) { // si ressort sur plateforme
+                            const DebSpawnRessort = plat.x + 15;
+                            const FinSpawnRessort = DebSpawnRessort + 15;
+                            if ((this._position.x + 70) > DebSpawnRessort && this._position.x < FinSpawnRessort) {
+                                this._Jump(1300); // force du saut
+                            } else {
+                                this._Jump(Model.JUMP_FORCE);
+                            }
+                        } else {
+                            this._Jump(Model.JUMP_FORCE);
+                        }
+
+                        if (plat.type === 'PB_D') {
+                            plat.sEnleve = true; // on marque les plateformes à supprimer
+                        }
+
+                        // si c'est une plateforme jaune, déplacement de la plateforme horizontalement
+                        if (plat.type === 'PJ') {
+                            plat.x = Math.random() * 390; // nouvelle position horizontale
+                        }
+                    }
+                });
+
+                // plateformes supprimées marquées
+                this._plats = this._plats.filter(p => !p.sEnleve); 
+            }
+
+            _Jump(force) {
+                this._gravitySpeed = -force; // negatif car on remonte
+            }
+
+            DoodleTombe() {
+                document.getElementById('jeu_perd').style.display = 'block';
+                cancelAnimationFrame(this.animationFrame);
+            }
+
+            ResetLeJeu() {
+                // réinitialise toutes les valeurs
+                this._direction = 0;
+                this._gravitySpeed = 0;
+                this._position = { x: 200, y: 500 };
+                this._plats = this.generePlats();
+                this._score = 50;
+            }
+
+        }
+
+        class View {
+            constructor() { // partie gardée
+                this._canvas = document.getElementById('my_canvas');
+                this.ctx = this._canvas.getContext('2d');
+                this._hold_right = false; 
+                this._hold_left  = false;
+
+                this.Events();
+            }
+
+            BindSetDirection(callback) { // partie gardée
+                this.b_SetDirection = callback;
+            }
+
+            Events() {
+                document.addEventListener('keydown', (evt) => {
+                    if (evt.key === 'ArrowLeft' || evt.key === 'ArrowRight') {
+                        switch (evt.key) {
+                            case 'ArrowLeft':
+                                this._hold_left = true;
+                                this.b_SetDirection(-1);
+                                break;
+                            case 'ArrowRight':
+                                this._hold_right = true;
+                                this.b_SetDirection(1);
+                                break;
+                        }
+                    }
+                });
+
+                document.addEventListener('keyup', (evt) => { // partie gardée
+                    switch (evt.key) {
+                        case 'ArrowLeft':
+                            this._hold_left = false;
+                            if (!this._hold_right) {
+                                this.b_SetDirection(0);
+                            }
+                            break;
+                        case 'ArrowRight':
+                            this._hold_right = false;
+                            if (!this._hold_left) {
+                                this.b_SetDirection(0);
+                            }
+                            break;
+                    }
+                });
+            }
+
+            Display(position, direction, plats, score) {
+                let x = position.x;
+                let y = position.y;
+
+                this.ctx.clearRect(0, 0, this._canvas.width, this._canvas.height); // efface le canvas
+
+                // Dessiner le background
+                let ImageGrille = document.getElementById('background_image');
+                this.ctx.drawImage(ImageGrille, 0, 0, this._canvas.width, this._canvas.height);
+
+                // Essaye ligne d'arrivée à 15000 de score, non fructuant
+                /*if (score >= 15000) {
+                    let staticImg = document.getElementById('finish_line_image'); // Remplace 'verte' par l'ID de ton image
+                    let staticY = 750 - (15000 - score); // Position relative basée sur le score
+                    this.ctx.drawImage(staticImg, 200, staticY, 57, 15); // Ajuste les coordonnées et dimensions si besoin
+                } */
+
+                // Dessiner le doodle
+
+                let ImageDoodle;
+
+                if (direction === -1) {
+                    // Si la direction est à gauche, on prend l'image du doodle à gauche
+                    ImageDoodle = document.getElementById('doodle_image_g');
+                } else {
+                    // Image de droite par défaut (voir comment gérer le cas où direction = 0 et aussi essayer de garder l'image de la dernière touche préssée)
+                    ImageDoodle = document.getElementById('doodle_image_d');
+                }
+                this.ctx.drawImage(ImageDoodle, x, y, 70, 70);
+
+                // Dessiner les plateformes
+                plats.forEach(plat => {
+                    let ImagePlat;
+                    switch (plat.type) {
+                        case 'PV':
+                            ImagePlat = document.getElementById('verte');
+                            break;
+                        case 'PB_M':
+                            ImagePlat = document.getElementById('bleue');
+                            break;
+                        case 'PB_D':
+                            ImagePlat = document.getElementById('blanche');
+                            break;
+                        case 'PJ':  // Cas pour la plateforme jaune
+                            ImagePlat = document.getElementById('jaune');  // Assurez-vous d'ajouter l'image jaune dans le HTML
+                            break;
+                    }
+                    this.ctx.drawImage(ImagePlat, plat.x, plat.y, plat.width, plat.height); // dessine la plateforme
+
+                    // dessiner le ressort si présent
+                    if (plat.siRessort) {
+                        let ImageRessort = document.getElementById('ressort_image');
+                        this.ctx.drawImage(ImageRessort, plat.x + 15, plat.y - 15, 15, 15);
+                    }
+                    if (plat.siTrampoline) {
+                        let ImageTrampoline = document.getElementById('trampoline_image');
+                        this.ctx.drawImage(ImageTrampoline, plat.x + 10, plat.y - 10, 37, 15);
+                    }
+                });
+
+                // score
+                this.ctx.font = "20px Arial";
+                this.ctx.fillText(`Score : ${Math.floor(score)}`, 10, 40); // compte le score
+            }
+        }
+
+        class Controller {
+            constructor() {
+                this._model = new Model(); // partie gardée
+                this._view = new View();
+
+                this._startTime = Date.now();
+                this._lag =0;
+                this._fps= 60;
+                this._frameDuration= 1000 / this._fps;
+
+                this._model.BindDisplay(this.Display.bind(this));
+                this._view.BindSetDirection(this.SetDirection.bind(this));
+
+                // Premier affichage
+                this.Display(this._model.position, this._model.direction, this._model.plats, this._model.score);
+
+                this.Update(); // permet de mettre à jour le jeu
+            }
+
+            Display(position, direction, plats, score) { // affichage du jeu mis à jour
+                this._view.Display(position, direction, plats, score); // affichage du jeu
+            }
+
+            SetDirection(nouvDirection) { 
+                this._model.direction = nouvDirection; // change la direction du doodle
+            }
+
+            Update() { // mise à jour du jeu
+                let currentTime = Date.now();
+                let deltaTime = currentTime - this._startTime;
+
+                this._lag += deltaTime;
+                this._startTime = currentTime;
+
+                while (this._lag >= this._frameDuration) {
+                    this._model.Move(this._fps);
+                    this._lag -= this._frameDuration;
+                }
+
+                this._model.animationFrame = requestAnimationFrame(this.Update.bind(this));
+            }
+        }
+
+        function redemJeu() {
+            document.getElementById('jeu_perd').style.display = 'none'; // pour faire disparaitre une fois cliqué !!
+
+            app._model.ResetLeJeu();
+            app.Update();
+        }
+
+        let app = new Controller();
+    </script>
+</body>
+</html>
